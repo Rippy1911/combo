@@ -12,6 +12,7 @@ import { Lock, Plus, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { ByokDialog } from "./ByokDialog";
+import { Markdown } from "./Markdown";
 import { ToolChip } from "./ToolChip";
 import { type UiTurn, useComboStore } from "./store";
 
@@ -58,6 +59,7 @@ export function AgentPanel() {
 
   const [input, setInput] = useState("");
   const [byokOpen, setByokOpen] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
   async function send() {
     const text = input.trim();
@@ -86,7 +88,7 @@ export function AgentPanel() {
     const onEvent = (e: AgentEvent) => {
       switch (e.type) {
         case "status":
-          updateLastTurn((t) => ({ ...t, content: e.message ?? "" }));
+          setStatusMsg(e.message ?? null);
           break;
         case "tool_start":
           updateLastTurn((t) => ({
@@ -130,13 +132,14 @@ export function AgentPanel() {
           });
           break;
         case "assistant_delta":
-          updateLastTurn((t) => ({ ...t, content: e.message ?? "" }));
+          updateLastTurn((t) => ({ ...t, content: t.content + (e.message ?? "") }));
           break;
         case "usage":
           if (e.usage) addUsage(e.usage as Usage);
           break;
         case "done":
           if (e.message) updateLastTurn((t) => ({ ...t, content: e.message ?? "" }));
+          setStatusMsg(null);
           setAgentBusy(false);
           break;
         case "error":
@@ -233,6 +236,12 @@ export function AgentPanel() {
 
       <ApprovalBanner pending={pending} onAutoSmart={autoSmart} onAutoAll={autoAll} />
 
+      {statusMsg && busy && (
+        <div className="border-b border-border bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
+          {statusMsg}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-3 py-3">
         {turns.length === 0 ? (
           <p className="mt-8 text-center text-xs text-muted-foreground">
@@ -288,8 +297,8 @@ function TurnView({ turn }: { turn: UiTurn }) {
   return (
     <li className="self-start max-w-[92%]">
       {turn.content && (
-        <div className="whitespace-pre-wrap rounded-md bg-secondary px-2.5 py-1.5 text-sm text-secondary-foreground">
-          {turn.content}
+        <div className="rounded-md bg-secondary px-2.5 py-1.5 text-sm text-secondary-foreground">
+          <Markdown text={turn.content} />
         </div>
       )}
       {turn.chips.map((c, i) => (

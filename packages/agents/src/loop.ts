@@ -171,12 +171,15 @@ export class AgentLoop {
 
       let result: LlmChatResponse;
       try {
-        result = await this.llm.chat({
-          model: options.model,
-          messages,
-          tools: tools.length > 0 ? tools : undefined,
-          temperature: 0.2,
-        });
+        result = await this.llm.chatStream(
+          {
+            model: options.model,
+            messages,
+            tools: tools.length > 0 ? tools : undefined,
+            temperature: 0.2,
+          },
+          (chunk) => emit({ type: "assistant_delta", message: chunk }),
+        );
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         emit({ type: "error", message: msg });
@@ -192,7 +195,6 @@ export class AgentLoop {
       if (toolCalls.length === 0) {
         finalText = result.content ?? "";
         messages.push({ role: "assistant", content: finalText });
-        emit({ type: "assistant_delta", message: finalText });
         emit({ type: "done", usage });
         return { messages, finalText, steps, usage, aborted: false, hitStepLimit: false };
       }
@@ -271,19 +273,25 @@ export class AgentLoop {
 
     if (mode === "auto_llm") {
       try {
-        const verdict = await this.llm.chat({
-          model: approvalModel,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a safety gate for a browser agent. Reply ONLY yes or no. Approve routine browsing (open shop URLs, click nav/search, type search queries). Deny destructive/sensitive (delete, payments, password changes, email send, random downloads).",
-            },
-            { role: "user", content: `Tool: ${call.function.name}\nArgs: ${JSON.stringify(args)}` },
-          ],
-          maxTokens: 4,
-          temperature: 0,
-        });
+        const verdict = await this.llm.chatStream(
+          {
+            model: approvalModel,
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are a safety gate for a browser agent. Reply ONLY yes or no. Approve routine browsing (open shop URLs, click nav/search, type search queries). Deny destructive/sensitive (delete, payments, password changes, email send, random downloads).",
+              },
+              {
+                role: "user",
+                content: `Tool: ${call.function.name}\nArgs: ${JSON.stringify(args)}`,
+              },
+            ],
+            maxTokens: 4,
+            temperature: 0,
+          },
+          () => undefined,
+        );
         const u = toUsage(verdict.usage);
         onUsage(u);
         emit({ type: "usage", usage: u, usageSource: "approval" });
@@ -386,18 +394,21 @@ export class AgentLoop {
     if (!text.trim()) return { ok: false, error: "no text to parse" };
 
     emit({ type: "status", message: `Worker parse (${workerModel})…` });
-    const result = await this.llm.chat({
-      model: workerModel,
-      messages: [
-        { role: "system", content: PARSE_SYSTEM },
-        {
-          role: "user",
-          content: `Intent: ${intent}\nSchema hint: ${schemaHint || "(infer reasonable columns)"}\n\n--- PAGE TEXT ---\n${text}`,
-        },
-      ],
-      temperature: 0.1,
-      maxTokens: 4096,
-    });
+    const result = await this.llm.chatStream(
+      {
+        model: workerModel,
+        messages: [
+          { role: "system", content: PARSE_SYSTEM },
+          {
+            role: "user",
+            content: `Intent: ${intent}\nSchema hint: ${schemaHint || "(infer reasonable columns)"}\n\n--- PAGE TEXT ---\n${text}`,
+          },
+        ],
+        temperature: 0.1,
+        maxTokens: 4096,
+      },
+      () => undefined,
+    );
     const u = toUsage(result.usage);
     onUsage(u);
     emit({ type: "usage", usage: u, usageSource: "worker" });

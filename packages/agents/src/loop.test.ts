@@ -13,24 +13,31 @@ function mockLlm(
 ): LlmProviderClient {
   let i = 0;
   return {
-    chat: vi.fn(async (opts: { model: string }): Promise<LlmChatResponse> => {
-      onChat?.(opts.model);
-      const step = sequence[i] ?? sequence[sequence.length - 1];
-      if (!step) throw new Error("mock sequence exhausted");
-      i += 1;
-      const toolCalls: ToolCall[] | undefined = step.toolCalls?.map((t) => ({
-        id: t.id,
-        type: "function" as const,
-        function: { name: t.name, arguments: t.args },
-      }));
-      return {
-        content: step.content ?? "",
-        model: step.model ?? opts.model,
-        toolCalls,
-        finishReason: toolCalls?.length ? "tool_calls" : "stop",
-        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
-      };
-    }),
+    chatStream: vi.fn(
+      async (
+        opts: { model: string },
+        onDelta: (chunk: string) => void,
+      ): Promise<LlmChatResponse> => {
+        onChat?.(opts.model);
+        const step = sequence[i] ?? sequence[sequence.length - 1];
+        if (!step) throw new Error("mock sequence exhausted");
+        i += 1;
+        const toolCalls: ToolCall[] | undefined = step.toolCalls?.map((t) => ({
+          id: t.id,
+          type: "function" as const,
+          function: { name: t.name, arguments: t.args },
+        }));
+        const content = step.content ?? "";
+        if (content) onDelta(content);
+        return {
+          content,
+          model: step.model ?? opts.model,
+          toolCalls,
+          finishReason: toolCalls?.length ? "tool_calls" : "stop",
+          usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        };
+      },
+    ),
     stream: vi.fn(),
     testConnection: vi.fn(async () => true),
   } as unknown as LlmProviderClient;
@@ -151,5 +158,26 @@ describe("AgentLoop", () => {
     expect(call[0]).toBe("out.csv");
     expect(call[1]).toContain("a,b");
     expect(call[1]).toContain('"c,d",e');
+  });
+
+  it("streams the final answer via assistant_delta chunks", async () => {
+    const llm = mockLlm([
+      {
+        content: null,
+        toolCalls: [{ id: "1", name: "get_page", args: "{}" }],
+      },
+      { content: "Hello world" },
+    ]);
+    const events: { type: string; message?: string }[] = [];
+    const agent = new AgentLoop(llm, stubBrowser());
+    const result = await agent.run({
+      model: "mock",
+      userMessage: "read",
+      onEvent: (e) => events.push({ type: e.type, message: e.message }),
+    });
+    const deltas = events.filter((e) => e.type === "assistant_delta");
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(deltas.map((d) => d.message ?? "").join("")).toBe("Hello world");
+    expect(result.finalText).toBe("Hello world");
   });
 });

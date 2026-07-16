@@ -76,6 +76,8 @@ export interface LlmChatResponse {
 export interface LlmProviderClient {
   chat(request: LlmChatRequest): Promise<LlmChatResponse>;
   stream(request: LlmChatRequest): AsyncIterable<string>;
+  /** Stream a chat completion, invoking onDelta for each content chunk; returns the full response (content + toolCalls + finishReason + usage). */
+  chatStream(request: LlmChatRequest, onDelta: (chunk: string) => void): Promise<LlmChatResponse>;
   testConnection(): Promise<boolean>;
 }
 
@@ -201,6 +203,32 @@ export async function* parseSse(chunks: AsyncIterable<string>): AsyncIterable<st
       }
       const delta = json.choices?.[0]?.delta?.content;
       if (typeof delta === "string" && delta.length > 0) yield delta;
+    }
+  }
+}
+
+/**
+ * Parse an SSE text stream into parsed JSON event payloads (one per `data:` line).
+ * Used by chatStream to access content + tool_calls + finish_reason + usage.
+ */
+export async function* parseSseEvents(
+  chunks: AsyncIterable<string>,
+): AsyncIterable<Record<string, unknown>> {
+  let buffer = "";
+  for await (const chunk of chunks) {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
+      const data = trimmed.slice(5).trim();
+      if (data.length === 0 || data === "[DONE]") continue;
+      try {
+        yield JSON.parse(data) as Record<string, unknown>;
+      } catch {
+        /* skip malformed */
+      }
     }
   }
 }
@@ -391,6 +419,87 @@ export class OpenRouterProvider implements LlmProviderClient {
     if (!res.body) throw new LlmBadResponseError("response has no body");
     yield* parseSse(readBodyChunks(res.body));
   }
+
+  /** Stream a chat completion with tool support: content deltas go to onDelta; returns full response with accumulated tool_calls + usage. */
+  async chatStream(
+    request: LlmChatRequest,
+    onDelta: (chunk: string) => void,
+  ): Promise<LlmChatResponse> {
+    return withRetry(async () => {
+      const res = await this.fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: this.headers(true),
+        body: JSON.stringify({
+          ...this.body(request),
+          stream: true,
+          stream_options: { include_usage: true },
+        }),
+      });
+      if (!res.ok) throw mapStatusError(res.status, await safeText(res));
+      if (!res.body) throw new LlmBadResponseError("response has no body");
+
+      let content = "";
+      let finishReason: string | undefined;
+      let usage: LlmUsage | undefined;
+      const toolAcc = new Map<number, { id: string; name: string; arguments: string }>();
+
+      for await (const evt of parseSseEvents(readBodyChunks(res.body))) {
+        const choices = evt.choices as
+          | Array<{
+              delta?: { content?: string; tool_calls?: Array<Partial<RawToolCallDelta>> };
+              finish_reason?: string;
+            }>
+          | undefined;
+        const choice = choices?.[0];
+        const delta = choice?.delta;
+        if (typeof delta?.content === "string" && delta.content.length > 0) {
+          content += delta.content;
+          onDelta(delta.content);
+        }
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            const acc = toolAcc.get(idx) ?? { id: "", name: "", arguments: "" };
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments) acc.arguments += tc.function.arguments;
+            toolAcc.set(idx, acc);
+          }
+        }
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        const u = evt.usage as
+          | { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+          | undefined;
+        if (u) usage = mapUsage(u);
+      }
+
+      const toolCalls: ToolCall[] = [];
+      let n = 0;
+      for (const acc of toolAcc.values()) {
+        toolCalls.push({
+          id: acc.id || `call_${n}`,
+          type: "function",
+          function: { name: acc.name, arguments: acc.arguments },
+        });
+        n += 1;
+      }
+
+      return {
+        content,
+        model: request.model,
+        usage,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+      };
+    }, this.retry);
+  }
+}
+
+interface RawToolCallDelta {
+  index?: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
 }
 
 /** Read a fetch Response body as an async iterable of decoded text chunks. */
@@ -458,6 +567,13 @@ abstract class StubProvider implements LlmProviderClient {
 
   stream(_request: LlmChatRequest): AsyncIterable<string> {
     return rejectingAsyncIterable(new ProviderNotImplementedError(this.provider));
+  }
+
+  chatStream(
+    _request: LlmChatRequest,
+    _onDelta: (chunk: string) => void,
+  ): Promise<LlmChatResponse> {
+    return Promise.reject(new ProviderNotImplementedError(this.provider));
   }
 
   testConnection(): Promise<boolean> {

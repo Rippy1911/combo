@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["packages/**/src/**/*.test.ts", "extension/src/**/*.test.ts"],
+    include: ["packages/**/src/**/*.test.{ts,tsx}", "extension/src/**/*.test.{ts,tsx}"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
