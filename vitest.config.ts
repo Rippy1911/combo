@@ -8,18 +8,19 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
-      include: ["packages/**/src/**/*.ts", "extension/src/**/*.ts"],
+      include: [
+        "packages/vault/src/**/*.ts",
+        "packages/llm/src/**/*.ts",
+        "packages/files/src/**/*.ts",
+      ],
       exclude: [
         "**/*.test.ts",
         "**/*.d.ts",
         "extension/src/**",
-        // Phase A: stub packages excluded from 80% gate — re-enable per package in Phase B
+        // Phase B: stub packages still excluded from the 80% gate
         "packages/shared/src/**",
-        "packages/vault/src/**",
         "packages/rag/src/**",
-        "packages/files/src/**",
         "packages/mcp/src/**",
-        "packages/llm/src/**",
         "packages/agents/src/**",
       ],
       thresholds: {
