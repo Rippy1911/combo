@@ -244,7 +244,9 @@ export class OpenRouterProvider implements LlmProviderClient {
     if (!options.apiKey) throw new Error("OpenRouterProvider requires an apiKey");
     this.apiKey = options.apiKey;
     this.baseUrl = (options.baseUrl ?? "https://openrouter.ai/api/v1").replace(/\/$/, "");
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch;
+    // Bind the default fetch to globalThis so it works in the browser too —
+    // calling `window.fetch` unbound throws "Illegal invocation".
+    this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retry = {
       maxRetries: options.retry?.maxRetries ?? DEFAULT_RETRY.maxRetries,
       baseDelayMs: options.retry?.baseDelayMs ?? DEFAULT_RETRY.baseDelayMs,
@@ -277,7 +279,7 @@ export class OpenRouterProvider implements LlmProviderClient {
   }
 
   async testConnection(): Promise<boolean> {
-    const res = await this.fetch(`${this.baseUrl}/models`, {
+    const res = await this.fetch(`${this.baseUrl}/key`, {
       method: "GET",
       headers: this.headers(false),
     });
@@ -286,7 +288,7 @@ export class OpenRouterProvider implements LlmProviderClient {
 
   /** Like testConnection but returns the HTTP status so the UI can surface 401/429/etc. */
   async probeConnection(): Promise<{ ok: boolean; status: number }> {
-    const res = await this.fetch(`${this.baseUrl}/models`, {
+    const res = await this.fetch(`${this.baseUrl}/key`, {
       method: "GET",
       headers: this.headers(false),
     });
