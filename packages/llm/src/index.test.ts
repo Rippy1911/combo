@@ -297,6 +297,24 @@ describe("@combo/llm OpenRouterProvider", () => {
     expect(await p2.testConnection()).toBe(false);
   });
 
+  it("probeConnection surfaces the HTTP status", async () => {
+    const ok: FetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    const p1 = new OpenRouterProvider({
+      apiKey: "k",
+      fetchImpl: ok as unknown as typeof fetch,
+      retry: { sleep: instantSleep() },
+    });
+    expect(await p1.probeConnection()).toEqual({ ok: true, status: 200 });
+
+    const bad: FetchMock = vi.fn(async () => new Response("nope", { status: 401 }));
+    const p2 = new OpenRouterProvider({
+      apiKey: "k",
+      fetchImpl: bad as unknown as typeof fetch,
+      retry: { sleep: instantSleep() },
+    });
+    expect(await p2.probeConnection()).toEqual({ ok: false, status: 401 });
+  });
+
   it("requires an apiKey", () => {
     expect(() => new OpenRouterProvider({ apiKey: "" })).toThrow();
   });

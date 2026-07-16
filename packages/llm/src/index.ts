@@ -284,6 +284,15 @@ export class OpenRouterProvider implements LlmProviderClient {
     return res.ok;
   }
 
+  /** Like testConnection but returns the HTTP status so the UI can surface 401/429/etc. */
+  async probeConnection(): Promise<{ ok: boolean; status: number }> {
+    const res = await this.fetch(`${this.baseUrl}/models`, {
+      method: "GET",
+      headers: this.headers(false),
+    });
+    return { ok: res.ok, status: res.status };
+  }
+
   /** fetch wrapper that converts non-Llm failures (e.g. TypeError) into LlmNetworkError. */
   private async fetch(url: string, init: RequestInit): Promise<Response> {
     try {
