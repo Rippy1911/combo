@@ -41,6 +41,22 @@ export default defineConfig({
           ) {
             return "sidepanel-vendor";
           }
+          // Heavy file-parsing libs (pdf.js, SheetJS, pdf-lib) — keep out of the
+          // measured sidepanel bundle; loaded on demand via @combo/files.
+          if (
+            id.includes("packages/files") ||
+            id.includes("node_modules/pdfjs-dist") ||
+            id.includes("node_modules/pdf-lib") ||
+            id.includes("node_modules/xlsx") ||
+            id.includes("node_modules/jszip") ||
+            id.includes("node_modules/fflate") ||
+            id.includes("node_modules/cfb") ||
+            id.includes("node_modules/codepage") ||
+            id.includes("node_modules/frac") ||
+            id.includes("node_modules/ssf")
+          ) {
+            return "files-parser";
+          }
         },
       },
     },

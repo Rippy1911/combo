@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { type Attachment, attachmentsToContext, parseAttachment } from "@/lib/attachments";
 import { createChromeBridge } from "@/lib/chrome-bridge";
 import {
   VAULT_LABEL_OPENROUTER_KEY,
@@ -8,8 +9,8 @@ import {
 } from "@/lib/vault";
 import { type AgentEvent, AgentLoop, type PreviewPayload, type Usage } from "@combo/agents";
 import { OpenRouterProvider } from "@combo/llm";
-import { Lock, Plus, Send, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Lock, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { ByokDialog } from "./ByokDialog";
 import { Markdown } from "./Markdown";
@@ -62,11 +63,41 @@ export function AgentPanel() {
   const [byokOpen, setByokOpen] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewPayload | null>(null);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function onFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    // placeholders so the UI shows them immediately
+    const placeholders = files.map((f) => ({
+      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      name: f.name,
+      kind: "unknown" as const,
+      mime: f.type || "application/octet-stream",
+      size: f.size,
+      status: "parsing" as const,
+    }));
+    setAttachments((xs) => [...xs, ...placeholders]);
+    const parsed = await Promise.all(files.map((f) => parseAttachment(f)));
+    setAttachments((xs) => {
+      let next = [...xs];
+      for (const p of parsed) {
+        const idx = next.findIndex((a) => a.name === p.name && a.status === "parsing");
+        if (idx >= 0) next[idx] = p;
+        else next = [...next, p];
+      }
+      return next;
+    });
+  }
 
   async function send() {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && attachments.length === 0) || busy) return;
+    const ctx = attachmentsToContext(attachments);
+    const fullMessage = ctx ? `${text}\n\n${ctx}` : text;
     setInput("");
+    setAttachments([]);
     setError(null);
 
     const vault = getVault();
@@ -78,7 +109,9 @@ export function AgentPanel() {
     await vault.put(VAULT_LABEL_OPENROUTER_MODEL, model);
     await vault.put(VAULT_LABEL_OPENROUTER_WORKER_MODEL, workerModel);
 
-    appendTurn({ id: newId(), role: "user", content: text, chips: [] });
+    const displayText =
+      attachments.length > 0 ? `${text}\n📎 ${attachments.length} attachment(s)` : text;
+    appendTurn({ id: newId(), role: "user", content: displayText, chips: [] });
     const assistantId = newId();
     appendTurn({ id: assistantId, role: "assistant", content: "", chips: [] });
     setAgentBusy(true);
@@ -157,7 +190,7 @@ export function AgentPanel() {
       await agent.run({
         model,
         workerModel,
-        userMessage: text,
+        userMessage: fullMessage,
         approvalMode: useComboStore.getState().approvalMode,
         onEvent,
       });
@@ -273,7 +306,31 @@ export function AgentPanel() {
       </div>
 
       <footer className="border-t border-border p-2">
+        {attachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {attachments.map((a) => (
+              <AttachmentChip
+                key={a.id}
+                att={a}
+                onRemove={() => setAttachments((xs) => xs.filter((x) => x.id !== a.id))}
+                onPreview={(p) => setPreview(p)}
+              />
+            ))}
+          </div>
+        )}
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            accept="image/*,.pdf,.txt,.csv,.tsv,.xlsx,.md,.json,.log"
+            onChange={(e) => {
+              void onFiles(e.target.files);
+              e.target.value = "";
+            }}
+            data-testid="file-input"
+          />
           <textarea
             data-testid="chat-input"
             value={input}
@@ -288,6 +345,15 @@ export function AgentPanel() {
             rows={2}
             className="flex-1 resize-none rounded-md border border-input bg-background px-2 py-1.5 text-sm"
           />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+            title="Attach files (images, pdf, txt, csv, xlsx)"
+            data-testid="attach-button"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </Button>
           <Button size="sm" onClick={() => void send()} disabled={busy} data-testid="send-button">
             <Send className="h-3.5 w-3.5" />
           </Button>
@@ -333,5 +399,83 @@ function TurnView({
         </div>
       )}
     </li>
+  );
+}
+
+function previewForAttachment(att: Attachment): PreviewPayload | null {
+  if (att.status !== "ready") return null;
+  if (att.kind === "image" && att.dataUrl) {
+    return {
+      kind: "image",
+      title: att.name,
+      src: att.dataUrl,
+      meta: { size: `${Math.round(att.size / 1024)} KB` },
+    };
+  }
+  if ((att.kind === "csv" || att.kind === "xlsx") && att.rows && att.rows.length > 0) {
+    return { kind: "table", title: att.name, rows: att.rows };
+  }
+  if (att.text) {
+    return { kind: "text", title: att.name, text: att.text };
+  }
+  return null;
+}
+
+function AttachmentChip({
+  att,
+  onRemove,
+  onPreview,
+}: {
+  att: Attachment;
+  onRemove: () => void;
+  onPreview: (p: PreviewPayload) => void;
+}) {
+  const preview = previewForAttachment(att);
+  const icon =
+    att.kind === "image"
+      ? "🖼"
+      : att.kind === "pdf"
+        ? "📄"
+        : att.kind === "xlsx"
+          ? "📊"
+          : att.kind === "csv"
+            ? "📋"
+            : "📎";
+  return (
+    <div
+      className="flex items-center gap-1 rounded border border-border bg-muted/40 px-1.5 py-1 text-[11px]"
+      data-testid="attachment-chip"
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      {preview ? (
+        <button
+          type="button"
+          onClick={() => onPreview(preview)}
+          className="max-w-[140px] truncate text-foreground hover:underline"
+          title={`Preview ${att.name}`}
+        >
+          {att.name}
+        </button>
+      ) : (
+        <span className="max-w-[140px] truncate text-foreground" title={att.name}>
+          {att.name}
+        </span>
+      )}
+      <span className="text-[10px] text-muted-foreground">
+        {att.status === "parsing"
+          ? "…"
+          : att.status === "error"
+            ? "⚠"
+            : `${Math.round(att.size / 1024)} KB`}
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove ${att.name}`}
+        className="text-muted-foreground hover:text-foreground"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
   );
 }
