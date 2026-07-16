@@ -1,8 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { loadMessages } from "@/lib/chatHistory";
-import { VAULT_LABEL_OPENROUTER_MODEL, getVault } from "@/lib/vault";
+import {
+  VAULT_LABEL_OPENROUTER_MODEL,
+  VAULT_LABEL_OPENROUTER_WORKER_MODEL,
+  getVault,
+} from "@/lib/vault";
 import { useEffect, useState } from "react";
-import { ChatPanel } from "./ChatPanel";
+import { AgentPanel } from "./AgentPanel";
 import { useComboStore } from "./store";
 
 function FirstRun() {
@@ -117,6 +121,8 @@ async function enterUnlocked() {
   const store = useComboStore.getState();
   const storedModel = await vault.get(VAULT_LABEL_OPENROUTER_MODEL);
   if (storedModel) store.setModel(storedModel);
+  const storedWorker = await vault.get(VAULT_LABEL_OPENROUTER_WORKER_MODEL);
+  if (storedWorker) store.setWorkerModel(storedWorker);
   const messages = await loadMessages();
   store.setMessages(messages);
   store.setPhase("unlocked");
@@ -150,5 +156,5 @@ export function App() {
   }
   if (phase === "first-run") return <FirstRun />;
   if (phase === "locked") return <UnlockView />;
-  return <ChatPanel />;
+  return <AgentPanel />;
 }

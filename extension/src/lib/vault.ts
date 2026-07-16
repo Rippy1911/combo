@@ -21,3 +21,4 @@ export function getVault(): Vault {
 /** Vault labels used by the side panel. */
 export const VAULT_LABEL_OPENROUTER_KEY = "openrouter-key";
 export const VAULT_LABEL_OPENROUTER_MODEL = "openrouter-model";
+export const VAULT_LABEL_OPENROUTER_WORKER_MODEL = "openrouter-worker-model";
