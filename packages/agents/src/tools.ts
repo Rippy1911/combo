@@ -288,6 +288,28 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "save_view",
+      description:
+        "Persist a table (headers + rows) as a named saved view the user can later open, filter, sort, and export from the Views tab. Use after a scrape/parse to keep a result for later.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          headers: { type: "array", items: { type: "string" } },
+          rows: { type: "array", items: { type: "array" } },
+          source: {
+            type: "string",
+            description: "short origin label, e.g. scrape_tables / parse_data / manual",
+          },
+        },
+        required: ["name", "rows"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 /** Parse a tool's arguments string (JSON) into a record; never throws. */

@@ -7,7 +7,18 @@ import {
 } from "@/lib/vault";
 import { useEffect, useState } from "react";
 import { AgentPanel } from "./AgentPanel";
+import { ViewsTab } from "./ViewsTab";
 import { useComboStore } from "./store";
+
+type TopTab = "chat" | "views";
+
+async function downloadText(filename: string, text: string, mime: string): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ type: "download_text", filename, text, mime });
+  } catch (e) {
+    useComboStore.getState().setError(e instanceof Error ? e.message : String(e));
+  }
+}
 
 function FirstRun() {
   const setError = useComboStore((s) => s.setError);
@@ -130,6 +141,8 @@ async function enterUnlocked() {
 
 export function App() {
   const phase = useComboStore((s) => s.phase);
+  const [tab, setTab] = useState<TopTab>("chat");
+  const [stashedView, setStashedView] = useState<{ title: string; rows: string[][] } | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -156,5 +169,29 @@ export function App() {
   }
   if (phase === "first-run") return <FirstRun />;
   if (phase === "locked") return <UnlockView />;
-  return <AgentPanel />;
+  return (
+    <main className="flex min-h-screen flex-col">
+      <nav className="flex gap-1 border-b border-border px-2 py-1.5">
+        {(["chat", "views"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setTab(t)}
+            className={`rounded-md px-3 py-1 text-xs font-medium ${tab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"}`}
+          >
+            {t === "chat" ? "Chat" : "Views"}
+          </button>
+        ))}
+      </nav>
+      {tab === "chat" ? (
+        <AgentPanel onStashView={setStashedView} onGoToViews={() => setTab("views")} />
+      ) : (
+        <ViewsTab
+          onExport={downloadText}
+          stashed={stashedView}
+          onConsumeStashed={() => setStashedView(null)}
+        />
+      )}
+    </main>
+  );
 }

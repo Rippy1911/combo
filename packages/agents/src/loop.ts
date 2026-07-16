@@ -68,6 +68,8 @@ export interface AgentRunOptions {
   approvalMode?: ApprovalMode;
   approvalModel?: string;
   onEvent?: (event: AgentEvent) => void;
+  /** Persist a saved view (Views tab). Loop-level tool handler for save_view. */
+  onSaveView?: (view: { name: string; source: string; rows: string[][] }) => Promise<void>;
 }
 
 export interface AgentRunResult {
@@ -254,9 +256,16 @@ export class AgentLoop {
           continue;
         }
 
-        const toolResult = await this.executeTool(call, args, emit, workerModel, (u) => {
-          usage = sumUsage(usage, u);
-        });
+        const toolResult = await this.executeTool(
+          call,
+          args,
+          emit,
+          workerModel,
+          (u) => {
+            usage = sumUsage(usage, u);
+          },
+          options.onSaveView,
+        );
         messages.push({
           role: "tool",
           tool_call_id: call.id,
@@ -341,6 +350,7 @@ export class AgentLoop {
     emit: (e: AgentEvent) => void,
     workerModel: string,
     onUsage: (u: Usage) => void,
+    onSaveView?: (view: { name: string; source: string; rows: string[][] }) => Promise<void>,
   ): Promise<unknown> {
     const name = call.function.name;
     emit({ type: "tool_start", tool: name, args, toolCallId: call.id });
@@ -388,6 +398,20 @@ export class AgentLoop {
         };
         emit({ type: "preview", preview });
         result = { ok: true, opened: preview.kind, title: preview.title };
+      } else if (name === "save_view") {
+        const headers = Array.isArray(args.headers) ? (args.headers as unknown[]).map(String) : [];
+        const bodyRows = Array.isArray(args.rows)
+          ? (args.rows as unknown[]).map((r) => toRow(r))
+          : [];
+        const rows = [headers, ...bodyRows];
+        const viewName = String(args.name ?? `View ${new Date().toISOString().slice(0, 16)}`);
+        const source = typeof args.source === "string" ? args.source : "agent";
+        if (!onSaveView) {
+          result = { ok: false, error: "view saving unavailable" };
+        } else {
+          await onSaveView({ name: viewName, source, rows });
+          result = { ok: true, name: viewName, rows: rows.length };
+        }
       } else {
         const req = toolArgsToContentRequest(name, args);
         if (!req) {

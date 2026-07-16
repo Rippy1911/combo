@@ -217,4 +217,44 @@ describe("AgentLoop", () => {
     expect(previews[0].preview?.title).toBe("Piadina");
     expect(previews[0].preview?.rows?.[1]).toEqual(["Piadina", "123"]);
   });
+
+  it("save_view calls onSaveView with headers + rows", async () => {
+    const llm = mockLlm([
+      {
+        content: null,
+        toolCalls: [
+          {
+            id: "1",
+            name: "save_view",
+            args: JSON.stringify({
+              name: "EANs",
+              source: "parse_data",
+              headers: ["name", "ean"],
+              rows: [
+                ["Piadina", "123"],
+                ["Focaccia", "456"],
+              ],
+            }),
+          },
+        ],
+      },
+      { content: "Saved the view." },
+    ]);
+    const saved: { name: string; source: string; rows: string[][] }[] = [];
+    const agent = new AgentLoop(llm, stubBrowser());
+    const result = await agent.run({
+      model: "mock",
+      userMessage: "keep this",
+      approvalMode: "auto_all",
+      onSaveView: async (v) => {
+        saved.push(v);
+      },
+    });
+    expect(saved.length).toBe(1);
+    expect(saved[0].name).toBe("EANs");
+    expect(saved[0].source).toBe("parse_data");
+    expect(saved[0].rows[0]).toEqual(["name", "ean"]);
+    expect(saved[0].rows[1]).toEqual(["Piadina", "123"]);
+    expect(result.finalText).toContain("Saved");
+  });
 });

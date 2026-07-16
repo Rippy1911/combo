@@ -7,6 +7,7 @@ import {
   VAULT_LABEL_OPENROUTER_WORKER_MODEL,
   getVault,
 } from "@/lib/vault";
+import { ViewStore } from "@/lib/views";
 import { type AgentEvent, AgentLoop, type PreviewPayload, type Usage } from "@combo/agents";
 import { OpenRouterProvider } from "@combo/llm";
 import { Lock, Paperclip, Plus, Send, Trash2, X } from "lucide-react";
@@ -40,7 +41,13 @@ function ApprovalModeSelect() {
   );
 }
 
-export function AgentPanel() {
+export function AgentPanel({
+  onStashView,
+  onGoToViews,
+}: {
+  onStashView?: (view: { title: string; rows: string[][] }) => void;
+  onGoToViews?: () => void;
+}) {
   const model = useComboStore((s) => s.model);
   const workerModel = useComboStore((s) => s.workerModel);
   const turns = useComboStore((s) => s.turns);
@@ -193,6 +200,10 @@ export function AgentPanel() {
         userMessage: fullMessage,
         approvalMode: useComboStore.getState().approvalMode,
         onEvent,
+        onSaveView: async (view) => {
+          await ViewStore.save({ name: view.name, source: view.source, rows: view.rows });
+          onStashView?.({ title: view.name, rows: view.rows });
+        },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -364,7 +375,17 @@ export function AgentPanel() {
       </footer>
 
       {byokOpen && <ByokDialog onClose={() => setByokOpen(false)} />}
-      {preview && <PreviewPane preview={preview} onClose={() => setPreview(null)} />}
+      {preview && (
+        <PreviewPane
+          preview={preview}
+          onClose={() => setPreview(null)}
+          onSendToViews={(v) => {
+            onStashView?.(v);
+            onGoToViews?.();
+            setPreview(null);
+          }}
+        />
+      )}
     </main>
   );
 }
