@@ -16,10 +16,33 @@ export interface LlmConfig {
   model: string;
 }
 
+/** OpenAI-style function tool definition. */
+export interface ToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+/** A tool call returned by the model. */
+export interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
 /** A single chat turn sent to a provider. */
 export interface LlmChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  /** Assistant turns: tool calls the model wants executed. */
+  tool_calls?: ToolCall[];
+  /** Tool turns: id of the call this result answers. */
+  tool_call_id?: string;
+  /** Tool turns: name of the tool that produced this result. */
+  name?: string;
 }
 
 /** Provider chat request — `chat({ model, messages, stream? })`. */
@@ -29,18 +52,24 @@ export interface LlmChatRequest {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+  /** Function tools the model may call. */
+  tools?: ToolDefinition[];
 }
 
 export interface LlmUsage {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  estimatedCostUsd?: number;
 }
 
 export interface LlmChatResponse {
   content: string;
   model: string;
   usage?: LlmUsage;
+  /** Tool calls the model wants executed (present when finish_reason === "tool_calls"). */
+  toolCalls?: ToolCall[];
+  finishReason?: string;
 }
 
 /** Provider contract every BYOK client implements. */
@@ -269,12 +298,17 @@ export class OpenRouterProvider implements LlmProviderClient {
   }
 
   private body(req: LlmChatRequest): Record<string, unknown> {
-    const payload: Record<string, unknown> = {
-      model: req.model,
-      messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-    };
+    const messages = req.messages.map((m) => {
+      const out: Record<string, unknown> = { role: m.role, content: m.content };
+      if (m.tool_calls) out.tool_calls = m.tool_calls;
+      if (m.tool_call_id) out.tool_call_id = m.tool_call_id;
+      if (m.name) out.name = m.name;
+      return out;
+    });
+    const payload: Record<string, unknown> = { model: req.model, messages };
     if (req.temperature !== undefined) payload.temperature = req.temperature;
     if (req.maxTokens !== undefined) payload.max_tokens = req.maxTokens;
+    if (req.tools && req.tools.length > 0) payload.tools = req.tools;
     return payload;
   }
 
@@ -313,16 +347,32 @@ export class OpenRouterProvider implements LlmProviderClient {
       });
       if (!res.ok) throw mapStatusError(res.status, await safeText(res));
       const json = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{
+          message?: {
+            content?: string | null;
+            tool_calls?: Array<{
+              id: string;
+              type: "function";
+              function: { name: string; arguments: string };
+            }>;
+          };
+          finish_reason?: string;
+        }>;
         model?: string;
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
-      const content = json.choices?.[0]?.message?.content;
-      if (typeof content !== "string") throw new LlmBadResponseError();
+      const choice = json.choices?.[0];
+      const rawContent = choice?.message?.content;
+      const toolCalls = choice?.message?.tool_calls;
+      if ((rawContent == null || rawContent === "") && !toolCalls) {
+        throw new LlmBadResponseError();
+      }
       return {
-        content,
+        content: typeof rawContent === "string" ? rawContent : "",
         model: json.model ?? request.model,
         usage: mapUsage(json.usage),
+        toolCalls,
+        finishReason: choice?.finish_reason,
       };
     }, this.retry);
   }

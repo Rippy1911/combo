@@ -19,7 +19,15 @@
     "default_path": "src/sidepanel/index.html"
   },
   "options_page": "src/options/index.html",
-  "permissions": ["sidePanel", "storage", "offscreen", "activeTab", "scripting"],
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "offscreen",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "downloads"
+  ],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [
     {
