@@ -116,13 +116,19 @@ function ByokDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose}>
+          <Button variant="outline" size="sm" onClick={onClose} data-testid="byok-cancel">
             Cancel
           </Button>
-          <Button variant="outline" size="sm" onClick={testConnection} disabled={testing}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={testConnection}
+            disabled={testing}
+            data-testid="byok-test-connection"
+          >
             {testing ? "Testing..." : "Test connection"}
           </Button>
-          <Button size="sm" onClick={save} disabled={saving}>
+          <Button size="sm" onClick={save} disabled={saving} data-testid="byok-save">
             {saving ? "Saving..." : "Save"}
           </Button>
         </div>
