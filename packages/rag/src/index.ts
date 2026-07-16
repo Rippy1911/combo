@@ -1,17 +1,18 @@
-/** RAG chunk representation (pglite + pgvector in Phase B). */
-export interface RagChunk {
-  id: string;
-  documentId: string;
-  content: string;
-  embedding?: number[];
-  metadata: Record<string, string>;
-}
-
-/** RAG store interface stub. */
-export interface RagStore {
-  index(chunks: RagChunk[]): Promise<void>;
-  search(query: string, limit?: number): Promise<RagChunk[]>;
-}
+export { splitText, getOverlap, CHUNK_SIZE_CHARS, OVERLAP_CHARS } from "./chunker.js";
+export type { TextChunk } from "./chunker.js";
+export { MockEmbedder, hashToVector, EMBEDDING_DIMENSION } from "./embedder.js";
+export type { Embedder } from "./embedder.js";
+export {
+  initStore,
+  resetStore,
+  insertChunks,
+  vectorSearch,
+  bm25Search,
+  reciprocalRankFusion,
+  search,
+  clearChunks,
+} from "./store.js";
+export type { SearchResult } from "./store.js";
 
 export const RAG_ENGINE = "pglite-pgvector" as const;
 
