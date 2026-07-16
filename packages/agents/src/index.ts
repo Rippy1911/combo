@@ -36,5 +36,6 @@ export {
   type AgentRunOptions,
   type AgentRunResult,
   type BrowserBridge,
+  type PreviewPayload,
   type Usage,
 } from "./loop.js";

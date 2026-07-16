@@ -180,4 +180,41 @@ describe("AgentLoop", () => {
     expect(deltas.map((d) => d.message ?? "").join("")).toBe("Hello world");
     expect(result.finalText).toBe("Hello world");
   });
+
+  it("open_preview emits a preview event with the table payload", async () => {
+    const llm = mockLlm([
+      {
+        content: null,
+        toolCalls: [
+          {
+            id: "1",
+            name: "open_preview",
+            args: JSON.stringify({
+              kind: "table",
+              title: "Piadina",
+              rows: [
+                ["name", "ean"],
+                ["Piadina", "123"],
+              ],
+            }),
+          },
+        ],
+      },
+      { content: "Opened the preview." },
+    ]);
+    const events: { type: string; preview?: { kind: string; title: string; rows?: string[][] } }[] =
+      [];
+    const agent = new AgentLoop(llm, stubBrowser());
+    await agent.run({
+      model: "mock",
+      userMessage: "show me",
+      approvalMode: "auto_all",
+      onEvent: (e) => events.push({ type: e.type, preview: e.preview as never }),
+    });
+    const previews = events.filter((e) => e.type === "preview");
+    expect(previews.length).toBe(1);
+    expect(previews[0].preview?.kind).toBe("table");
+    expect(previews[0].preview?.title).toBe("Piadina");
+    expect(previews[0].preview?.rows?.[1]).toEqual(["Piadina", "123"]);
+  });
 });

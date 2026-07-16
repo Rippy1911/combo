@@ -6,13 +6,14 @@ import {
   VAULT_LABEL_OPENROUTER_WORKER_MODEL,
   getVault,
 } from "@/lib/vault";
-import { type AgentEvent, AgentLoop, type Usage } from "@combo/agents";
+import { type AgentEvent, AgentLoop, type PreviewPayload, type Usage } from "@combo/agents";
 import { OpenRouterProvider } from "@combo/llm";
 import { Lock, Plus, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { ApprovalBanner } from "./ApprovalBanner";
 import { ByokDialog } from "./ByokDialog";
 import { Markdown } from "./Markdown";
+import { PreviewPane } from "./PreviewPane";
 import { ToolChip } from "./ToolChip";
 import { type UiTurn, useComboStore } from "./store";
 
@@ -60,6 +61,7 @@ export function AgentPanel() {
   const [input, setInput] = useState("");
   const [byokOpen, setByokOpen] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewPayload | null>(null);
 
   async function send() {
     const text = input.trim();
@@ -142,6 +144,9 @@ export function AgentPanel() {
           setStatusMsg(null);
           setAgentBusy(false);
           break;
+        case "preview":
+          if (e.preview) setPreview(e.preview);
+          break;
         case "error":
           setError(e.message ?? "agent error");
           break;
@@ -177,7 +182,7 @@ export function AgentPanel() {
   }
 
   return (
-    <main className="flex h-screen flex-col">
+    <main className="relative flex h-screen flex-col">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <h1 className="text-sm font-semibold">Combo</h1>
         <input
@@ -250,7 +255,18 @@ export function AgentPanel() {
         ) : (
           <ul className="flex flex-col gap-2">
             {turns.map((t) => (
-              <TurnView key={t.id} turn={t} />
+              <TurnView
+                key={t.id}
+                turn={t}
+                onPreview={(rows) =>
+                  setPreview({
+                    kind: "table",
+                    title: rows.headers ? "Tool result" : "Tool result",
+                    headers: rows.headers,
+                    rows: rows.rows,
+                  })
+                }
+              />
             ))}
           </ul>
         )}
@@ -282,11 +298,18 @@ export function AgentPanel() {
       </footer>
 
       {byokOpen && <ByokDialog onClose={() => setByokOpen(false)} />}
+      {preview && <PreviewPane preview={preview} onClose={() => setPreview(null)} />}
     </main>
   );
 }
 
-function TurnView({ turn }: { turn: UiTurn }) {
+function TurnView({
+  turn,
+  onPreview,
+}: {
+  turn: UiTurn;
+  onPreview?: (rows: { headers?: string[]; rows: string[][] }) => void;
+}) {
   if (turn.role === "user") {
     return (
       <li className="self-end max-w-[85%] whitespace-pre-wrap rounded-md bg-primary px-2.5 py-1.5 text-sm text-primary-foreground">
@@ -302,7 +325,7 @@ function TurnView({ turn }: { turn: UiTurn }) {
         </div>
       )}
       {turn.chips.map((c, i) => (
-        <ToolChip key={`${c.tool}-${i}`} chip={c} />
+        <ToolChip key={`${c.tool}-${i}`} chip={c} onPreview={onPreview} />
       ))}
       {turn.usage && (
         <div className="mt-0.5 text-[10px] text-muted-foreground">

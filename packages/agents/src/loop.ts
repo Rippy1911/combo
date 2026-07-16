@@ -22,6 +22,17 @@ export interface BrowserBridge {
   downloadText(filename: string, text: string, mime?: string): Promise<{ ok: boolean }>;
 }
 
+export interface PreviewPayload {
+  kind: "table" | "html" | "text" | "image";
+  title: string;
+  rows?: string[][];
+  headers?: string[];
+  html?: string;
+  text?: string;
+  src?: string;
+  meta?: Record<string, string>;
+}
+
 export interface AgentEvent {
   type:
     | "status"
@@ -31,7 +42,8 @@ export interface AgentEvent {
     | "assistant_delta"
     | "done"
     | "error"
-    | "usage";
+    | "usage"
+    | "preview";
   message?: string;
   tool?: string;
   args?: Record<string, unknown>;
@@ -40,6 +52,7 @@ export interface AgentEvent {
   toolCallId?: string;
   usageSource?: "orchestrator" | "worker" | "approval";
   resolve?: (allow: boolean) => void;
+  preview?: PreviewPayload;
 }
 
 export interface AgentRunOptions {
@@ -358,6 +371,23 @@ export class AgentLoop {
           csv,
           "text/csv",
         );
+      } else if (name === "open_preview") {
+        const kind = String(args.kind ?? "text") as "table" | "html" | "text" | "image";
+        const preview = {
+          kind,
+          title: String(args.title ?? "Preview"),
+          headers: Array.isArray(args.headers)
+            ? (args.headers as unknown[]).map(String)
+            : undefined,
+          rows: Array.isArray(args.rows)
+            ? (args.rows as unknown[]).map((r) => toRow(r))
+            : undefined,
+          html: typeof args.html === "string" ? args.html : undefined,
+          text: typeof args.text === "string" ? args.text : undefined,
+          src: typeof args.src === "string" ? args.src : undefined,
+        };
+        emit({ type: "preview", preview });
+        result = { ok: true, opened: preview.kind, title: preview.title };
       } else {
         const req = toolArgsToContentRequest(name, args);
         if (!req) {

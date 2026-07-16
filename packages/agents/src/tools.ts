@@ -266,6 +266,28 @@ export const AGENT_TOOLS: ToolDefinition[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "open_preview",
+      description:
+        "Open a non-blocking preview pane beside the chat to show the user a table, generated HTML report, text, or an image — without closing the chat. Use this to surface scraped/parsed data or generated artifacts for the user to inspect.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: { type: "string", enum: ["table", "html", "text", "image"] },
+          title: { type: "string" },
+          headers: { type: "array", items: { type: "string" } },
+          rows: { type: "array", items: { type: "array" } },
+          html: { type: "string" },
+          text: { type: "string" },
+          src: { type: "string", description: "image src (data: or https:)" },
+        },
+        required: ["kind", "title"],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 /** Parse a tool's arguments string (JSON) into a record; never throws. */
