@@ -16,6 +16,7 @@
     "size": "size-limit --config size-limit.json"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@playwright/test": "^1.51.1",
     "@size-limit/file": "^11.2.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -25,8 +26,8 @@
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.6",
     "@vitejs/plugin-react": "^4.4.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "autoprefixer": "^10.4.21",
-    "@biomejs/biome": "^1.9.4",
     "jsdom": "^26.1.0",
     "postcss": "^8.5.3",
     "size-limit": "^11.2.0",

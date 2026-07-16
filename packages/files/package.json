@@ -9,6 +9,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@combo/shared": "workspace:*"
+    "@combo/shared": "workspace:*",
+    "mammoth": "^1.12.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "jszip": "^3.10.1"
   }
 }
