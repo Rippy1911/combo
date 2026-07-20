@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const extensionPath = path.join(__dirname, "../extension/dist");
 
 test.describe("Combo extension smoke", () => {
-  test("side panel renders Combo is alive", async () => {
+  test("side panel renders the first-run welcome", async () => {
     const context = await chromium.launchPersistentContext("", {
       headless: false,
       args: [
@@ -26,7 +26,9 @@ test.describe("Combo extension smoke", () => {
       const sidePanelPage = await context.newPage();
       await sidePanelPage.goto(`chrome-extension://${extensionId}/src/sidepanel/index.html`);
 
+      // Fresh profile → vault is uninitialized → first-run welcome view.
       await expect(sidePanelPage.getByRole("heading", { name: "Welcome to Combo" })).toBeVisible();
+      await expect(sidePanelPage.getByTestId("first-run-passphrase")).toBeVisible();
     } finally {
       await context.close();
     }

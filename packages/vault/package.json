@@ -11,8 +11,5 @@
   "dependencies": {
     "@combo/shared": "workspace:*",
     "zod": "^3.24.3"
-  },
-  "devDependencies": {
-    "fake-indexeddb": "^6.2.5"
   }
 }
