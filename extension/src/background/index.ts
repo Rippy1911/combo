@@ -1,12 +1,11 @@
-import { getProtocolVersion } from "@combo/shared";
-import type { OffscreenPortMessage } from "@combo/shared";
+import {
+  type ContentRequest,
+  type ContentResponse,
+  RuntimeMessageSchema,
+  getProtocolVersion,
+} from "@combo/shared";
 
 const OFFSCREEN_URL = chrome.runtime.getURL("src/offscreen/offscreen.html");
-
-/** Ports that want chat events (side panel). */
-const chatPorts = new Set<chrome.runtime.Port>();
-/** Route streaming replies only to the port that started the request. */
-const requestOwners = new Map<string, chrome.runtime.Port>();
 
 async function ensureOffscreenDocument(): Promise<void> {
   const existingContexts = await chrome.runtime.getContexts({
@@ -36,82 +35,127 @@ chrome.runtime.onStartup.addListener(() => {
   void ensureOffscreenDocument();
 });
 
-function forwardToOwner(message: OffscreenPortMessage): void {
-  const requestId =
-    "requestId" in message && typeof message.requestId === "string" ? message.requestId : null;
-  if (!requestId) return;
-  const owner = requestOwners.get(requestId);
-  if (owner) {
-    try {
-      owner.postMessage(message);
-    } catch {
-      requestOwners.delete(requestId);
-    }
-    if (
-      (message.type === "combo:chat-chunk" && message.done) ||
-      message.type === "combo:chat-error" ||
-      message.type === "combo:test-connection-result"
-    ) {
-      requestOwners.delete(requestId);
-    }
-    return;
+// ── tab helpers ────────────────────────────────────────────────────────────
+
+async function activeTabId(): Promise<number | undefined> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab?.id;
+}
+
+async function runContent(
+  tabId: number | undefined,
+  request: ContentRequest,
+): Promise<ContentResponse> {
+  const targetId = tabId ?? (await activeTabId());
+  if (targetId == null) {
+    return { ok: false, error: "no active tab — open a tab first" };
   }
-  // Fallback: no owner map (e.g. SW restart mid-stream) — drop secrets, only fan-out non-sensitive.
-  if (message.type === "combo:chat-start" || message.type === "combo:test-connection") {
-    return;
-  }
-  for (const port of chatPorts) {
-    try {
-      port.postMessage(message);
-    } catch {
-      chatPorts.delete(port);
-    }
+  try {
+    const res = (await chrome.tabs.sendMessage(targetId, {
+      type: "combo:content",
+      request,
+    })) as ContentResponse;
+    return res ?? { ok: false, error: "no response from content script" };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Could not reach tab ${targetId} (${
+        error instanceof Error ? error.message : String(error)
+      }). Reload the tab so the Combo content script injects.`,
+    };
   }
 }
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== "combo-chat") {
-    return;
-  }
+function dataUrl(text: string, mime: string): string {
+  return `data:${mime};charset=utf-8,${encodeURIComponent(text)}`;
+}
 
-  chatPorts.add(port);
-  port.onDisconnect.addListener(() => {
-    chatPorts.delete(port);
-    for (const [id, owner] of requestOwners) {
-      if (owner === port) requestOwners.delete(id);
-    }
-  });
-
-  port.onMessage.addListener((message: OffscreenPortMessage) => {
-    if (
-      message?.type === "combo:chat-start" ||
-      message?.type === "combo:test-connection" ||
-      message?.type === "combo:chat-abort"
-    ) {
-      if ("requestId" in message && typeof message.requestId === "string") {
-        requestOwners.set(message.requestId, port);
-      }
-      void ensureOffscreenDocument().then(() => {
-        chrome.runtime.sendMessage(message);
-      });
-    }
-  });
-});
-
-chrome.runtime.onMessage.addListener((message: OffscreenPortMessage) => {
-  if (
-    message?.type === "combo:chat-chunk" ||
-    message?.type === "combo:chat-error" ||
-    message?.type === "combo:test-connection-result"
-  ) {
-    forwardToOwner(message);
-  }
-});
+// ── runtime message dispatcher ────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "combo:ping") {
     sendResponse({ ok: true, protocol: getProtocolVersion() });
     return true;
   }
-  return false;
+
+  const parsed = RuntimeMessageSchema.safeParse(message);
+  if (!parsed.success) {
+    return false; // not a combo runtime message — let another listener handle it
+  }
+  const msg = parsed.data;
+
+  void (async () => {
+    try {
+      switch (msg.type) {
+        case "content": {
+          sendResponse(await runContent(msg.tabId, msg.request));
+          break;
+        }
+        case "list_tabs": {
+          const tabs = await chrome.tabs.query({});
+          sendResponse({
+            tabs: tabs.map((t) => ({ id: t.id, title: t.title ?? "", url: t.url ?? "" })),
+          });
+          break;
+        }
+        case "open_tab": {
+          const tab = await chrome.tabs.create({ url: msg.url, active: msg.active ?? true });
+          sendResponse({ id: tab.id, url: tab.url ?? msg.url });
+          break;
+        }
+        case "activate_tab": {
+          await chrome.tabs.update(msg.tabId, { active: true });
+          sendResponse({ ok: true });
+          break;
+        }
+        case "navigate": {
+          const targetId = msg.tabId ?? (await activeTabId());
+          if (targetId == null) {
+            sendResponse({ ok: false, error: "no active tab" });
+            break;
+          }
+          await chrome.tabs.update(targetId, { url: msg.url });
+          sendResponse({ ok: true, url: msg.url });
+          break;
+        }
+        case "go_back": {
+          const targetId = msg.tabId ?? (await activeTabId());
+          if (targetId == null) {
+            sendResponse({ ok: false, error: "no active tab" });
+            break;
+          }
+          await chrome.tabs.goBack(targetId);
+          sendResponse({ ok: true });
+          break;
+        }
+        case "close_tab": {
+          await chrome.tabs.remove(msg.tabId);
+          sendResponse({ ok: true });
+          break;
+        }
+        case "download_text": {
+          const id = await chrome.downloads.download({
+            url: dataUrl(msg.text, msg.mime ?? "text/plain"),
+            filename: msg.filename,
+            saveAs: false,
+          });
+          sendResponse({ ok: true, id });
+          break;
+        }
+        default: {
+          sendResponse({
+            ok: false,
+            error: `unhandled runtime message ${(msg as { type: string }).type}`,
+          });
+        }
+      }
+    } catch (error) {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  })();
+
+  return true; // async response
 });

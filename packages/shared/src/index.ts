@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-/** Combo agent message schema. */
+/** Combo agent message schema (Phase A stub). */
 export const MessageSchema = z.object({
   id: z.string().uuid(),
   role: z.enum(["user", "assistant", "system"]),
@@ -17,63 +17,114 @@ export function getProtocolVersion(): typeof COMBO_PROTOCOL_VERSION {
   return COMBO_PROTOCOL_VERSION;
 }
 
-/** Chat models available in Phase B. */
-export const PHASE_B_MODELS = [
-  "x-ai/grok-4.5-fast",
-  "x-ai/grok-4.5",
-  "anthropic/claude-sonnet-4.6",
-  "openai/gpt-5.5",
-  "z-ai/glm-5.2",
-] as const;
+// ── Browser content ops (executed in the content script) ───────────────────
 
-export type PhaseBModel = (typeof PHASE_B_MODELS)[number];
+/** Ops the content script can run against the active tab's DOM. */
+export const BrowserToolNameSchema = z.enum([
+  "get_page",
+  "get_links",
+  "query_all",
+  "extract",
+  "click",
+  "type_text",
+  "scroll",
+  "find_text",
+  "get_interactive",
+  "click_index",
+  "type_index",
+  "scrape_tables",
+]);
+export type BrowserToolName = z.infer<typeof BrowserToolNameSchema>;
 
-/** Offscreen messaging protocol. */
-export interface ChatStartMessage {
-  type: "combo:chat-start";
-  requestId: string;
-  model: string;
-  messages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
-  apiKey: string;
-}
+export const ContentRequestSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("get_page") }),
+  z.object({
+    op: z.literal("get_links"),
+    selector: z.string().optional(),
+    limit: z.number().optional(),
+  }),
+  z.object({
+    op: z.literal("query_all"),
+    selector: z.string().min(1),
+    limit: z.number().int().positive().max(200).optional(),
+    attributes: z.array(z.string()).optional(),
+  }),
+  z.object({
+    op: z.literal("extract"),
+    selector: z.string().min(1),
+    attribute: z.string().optional(),
+  }),
+  z.object({ op: z.literal("click"), selector: z.string().min(1) }),
+  z.object({
+    op: z.literal("type_text"),
+    selector: z.string().min(1),
+    text: z.string(),
+    submit: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("scroll"),
+    selector: z.string().optional(),
+    dy: z.number().optional(),
+    toBottom: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("find_text"),
+    text: z.string().min(1),
+    scrollIntoView: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal("get_interactive") }),
+  z.object({ op: z.literal("click_index"), index: z.number().int().nonnegative() }),
+  z.object({
+    op: z.literal("type_index"),
+    index: z.number().int().nonnegative(),
+    text: z.string(),
+    submit: z.boolean().optional(),
+  }),
+  z.object({ op: z.literal("scrape_tables") }),
+]);
+export type ContentRequest = z.infer<typeof ContentRequestSchema>;
 
-export interface ChatAbortMessage {
-  type: "combo:chat-abort";
-  requestId: string;
-}
+export const ContentResponseSchema = z.object({
+  ok: z.boolean(),
+  data: z.unknown().optional(),
+  error: z.string().optional(),
+});
+export type ContentResponse = z.infer<typeof ContentResponseSchema>;
 
-export interface ChatChunkMessage {
-  type: "combo:chat-chunk";
-  requestId: string;
-  content: string;
-  done: boolean;
-}
+// ── Runtime messages (sidepanel ↔ service worker) ───────────────────────────
 
-export interface ChatErrorMessage {
-  type: "combo:chat-error";
-  requestId: string;
-  error: string;
-  statusCode?: number;
-}
+export const RuntimeMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("content"),
+    tabId: z.number().int().optional(),
+    request: ContentRequestSchema,
+  }),
+  z.object({ type: z.literal("list_tabs") }),
+  z.object({ type: z.literal("open_tab"), url: z.string(), active: z.boolean().optional() }),
+  z.object({ type: z.literal("activate_tab"), tabId: z.number().int() }),
+  z.object({ type: z.literal("navigate"), url: z.string(), tabId: z.number().int().optional() }),
+  z.object({ type: z.literal("go_back"), tabId: z.number().int().optional() }),
+  z.object({ type: z.literal("close_tab"), tabId: z.number().int() }),
+  z.object({
+    type: z.literal("download_text"),
+    filename: z.string(),
+    text: z.string(),
+    mime: z.string().optional(),
+  }),
+]);
+export type RuntimeMessage = z.infer<typeof RuntimeMessageSchema>;
 
-export interface TestConnectionMessage {
-  type: "combo:test-connection";
-  requestId: string;
-  apiKey: string;
-}
-
-export interface TestConnectionResultMessage {
-  type: "combo:test-connection-result";
-  requestId: string;
-  ok: boolean;
-  error?: string;
-  statusCode?: number;
-}
-
-export type OffscreenPortMessage =
-  | ChatStartMessage
-  | ChatAbortMessage
-  | ChatChunkMessage
-  | ChatErrorMessage
-  | TestConnectionMessage
-  | TestConnectionResultMessage;
+/** Tools that mutate the page / open URLs / handle credentials — require approval unless auto mode. */
+export const SENSITIVE_TOOLS = new Set([
+  "click",
+  "type_text",
+  "click_index",
+  "type_index",
+  "open_tab",
+  "activate_tab",
+  "navigate",
+  "go_back",
+  "close_tab",
+  "login",
+  "scrape_catalog",
+]);

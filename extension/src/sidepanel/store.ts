@@ -1,125 +1,111 @@
-import type { Message, OffscreenPortMessage } from "@combo/shared";
-import { isInitialized, isUnlocked, lock, setPassphrase, unlock } from "@combo/vault";
+import type { ApprovalMode, Usage } from "@combo/agents";
+import { DEFAULT_OPENROUTER_MODEL } from "@combo/llm";
+import type { Message } from "@combo/shared";
 import { create } from "zustand";
-import { loadMessages } from "./lib/conversation-db";
+import type { PendingApproval } from "./ApprovalBanner";
+import type { ToolChipData } from "./ToolChip";
 
-export type AppPhase = "loading" | "welcome" | "setPassphrase" | "locked" | "unlockDialog" | "chat";
+export type Phase = "loading" | "first-run" | "locked" | "unlocked";
 
-interface AppState {
-  phase: AppPhase;
-  messages: Message[];
-  unlockError: string | null;
-  showByok: boolean;
-  streaming: boolean;
-  init: () => Promise<void>;
-  completePassphraseSetup: (passphrase: string) => Promise<void>;
-  attemptUnlock: (passphrase: string) => Promise<boolean>;
-  doLock: () => Promise<void>;
-  setShowByok: (show: boolean) => void;
-  setMessages: (messages: Message[]) => void;
-  addMessage: (message: Message) => void;
-  updateMessageContent: (id: string, content: string) => void;
-  setStreaming: (streaming: boolean) => void;
-  setUnlockError: (error: string | null) => void;
-  goToSetPassphrase: () => void;
-  setPhase: (phase: AppPhase) => void;
+export interface UiTurn {
+  id: string;
+  role: "user" | "assistant" | "status";
+  content: string;
+  chips: ToolChipData[];
+  usage?: Usage;
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
+interface ComboState {
+  phase: Phase;
+  // plain chat (legacy)
+  messages: Message[];
+  model: string;
+  streaming: boolean;
+  error: string | null;
+  // agent
+  workerModel: string;
+  approvalMode: ApprovalMode;
+  agentBusy: boolean;
+  turns: UiTurn[];
+  pendingApproval: PendingApproval | null;
+  sessionUsage: Usage;
+  // setters
+  setPhase: (phase: Phase) => void;
+  setMessages: (messages: Message[]) => void;
+  appendMessage: (message: Message) => void;
+  appendDelta: (delta: string) => void;
+  removeMessage: (id: string) => void;
+  setModel: (model: string) => void;
+  setStreaming: (streaming: boolean) => void;
+  setError: (error: string | null) => void;
+  setWorkerModel: (model: string) => void;
+  setApprovalMode: (mode: ApprovalMode) => void;
+  setAgentBusy: (busy: boolean) => void;
+  appendTurn: (turn: UiTurn) => void;
+  updateLastTurn: (patch: (t: UiTurn) => UiTurn) => void;
+  setPendingApproval: (pending: PendingApproval | null) => void;
+  addUsage: (usage: Usage) => void;
+  resetAgent: () => void;
+}
+
+const ZERO_USAGE: Usage = {
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  estimatedCostUsd: 0,
+};
+
+export const useComboStore = create<ComboState>((set) => ({
   phase: "loading",
   messages: [],
-  unlockError: null,
-  showByok: false,
+  model: DEFAULT_OPENROUTER_MODEL,
   streaming: false,
+  error: null,
+  workerModel: "openrouter/openai/gpt-4.1-mini",
+  approvalMode: "ask",
+  agentBusy: false,
+  turns: [],
+  pendingApproval: null,
+  sessionUsage: ZERO_USAGE,
 
-  init: async () => {
-    const initialized = await isInitialized();
-    if (!initialized) {
-      set({ phase: "welcome", messages: [] });
-      return;
-    }
-    const messages = await loadMessages();
-    if (isUnlocked()) {
-      set({ phase: "chat", messages });
-    } else {
-      set({ phase: "locked", messages });
-    }
-  },
-
-  completePassphraseSetup: async (passphrase: string) => {
-    await setPassphrase(passphrase);
-    set({ phase: "chat", unlockError: null });
-  },
-
-  attemptUnlock: async (passphrase: string) => {
-    const ok = await unlock(passphrase);
-    if (ok) {
-      const messages = await loadMessages();
-      set({ phase: "chat", messages, unlockError: null });
-      return true;
-    }
-    set({ unlockError: "Incorrect passphrase. Please try again." });
-    return false;
-  },
-
-  doLock: async () => {
-    await lock();
-    set({ phase: "locked" });
-  },
-
-  setShowByok: (show) => set({ showByok: show }),
-  setMessages: (messages) => set({ messages }),
-  addMessage: (message) => set({ messages: [...get().messages, message] }),
-  updateMessageContent: (id, content) =>
-    set({
-      messages: get().messages.map((m) => (m.id === id ? { ...m, content } : m)),
-    }),
-  setStreaming: (streaming) => set({ streaming }),
-  setUnlockError: (error) => set({ unlockError: error }),
-  goToSetPassphrase: () => set({ phase: "setPassphrase" }),
   setPhase: (phase) => set({ phase }),
+  setMessages: (messages) => set({ messages }),
+  appendMessage: (message) => set((s) => ({ messages: [...s.messages, message] })),
+  appendDelta: (delta) =>
+    set((s) => {
+      const msgs = [...s.messages];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === "assistant") {
+        msgs[msgs.length - 1] = { ...last, content: last.content + delta };
+      }
+      return { messages: msgs };
+    }),
+  removeMessage: (id) => set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })),
+  setModel: (model) => set({ model }),
+  setStreaming: (streaming) => set({ streaming }),
+  setError: (error) => set({ error }),
+
+  setWorkerModel: (workerModel) => set({ workerModel }),
+  setApprovalMode: (approvalMode) => set({ approvalMode }),
+  setAgentBusy: (agentBusy) => set({ agentBusy }),
+  appendTurn: (turn) => set((s) => ({ turns: [...s.turns, turn] })),
+  updateLastTurn: (patch) =>
+    set((s) => {
+      const turns = [...s.turns];
+      const last = turns[turns.length - 1];
+      if (last) turns[turns.length - 1] = patch(last);
+      return { turns };
+    }),
+  setPendingApproval: (pendingApproval) => set({ pendingApproval }),
+  addUsage: (usage) =>
+    set((s) => ({
+      sessionUsage: {
+        promptTokens: s.sessionUsage.promptTokens + usage.promptTokens,
+        completionTokens: s.sessionUsage.completionTokens + usage.completionTokens,
+        totalTokens: s.sessionUsage.totalTokens + usage.totalTokens,
+        estimatedCostUsd: s.sessionUsage.estimatedCostUsd + usage.estimatedCostUsd,
+      },
+    })),
+  resetAgent: () =>
+    set({ turns: [], pendingApproval: null, sessionUsage: ZERO_USAGE, agentBusy: false }),
 }));
-
-let chatPort: chrome.runtime.Port | null = null;
-let chatPortAlive = false;
-
-function attachDisconnect(port: chrome.runtime.Port): void {
-  port.onDisconnect.addListener(() => {
-    if (chatPort === port) {
-      chatPort = null;
-      chatPortAlive = false;
-    }
-  });
-}
-
-export function getChatPort(): chrome.runtime.Port {
-  if (!chatPort || !chatPortAlive) {
-    chatPort = chrome.runtime.connect({ name: "combo-chat" });
-    chatPortAlive = true;
-    attachDisconnect(chatPort);
-  }
-  return chatPort;
-}
-
-export function sendPortMessage(message: OffscreenPortMessage): void {
-  try {
-    getChatPort().postMessage(message);
-  } catch {
-    chatPort = null;
-    chatPortAlive = false;
-    getChatPort().postMessage(message);
-  }
-}
-
-export function onPortMessage(handler: (message: OffscreenPortMessage) => void): () => void {
-  const port = getChatPort();
-  const listener = (msg: OffscreenPortMessage) => handler(msg);
-  port.onMessage.addListener(listener);
-  return () => {
-    try {
-      port.onMessage.removeListener(listener);
-    } catch {
-      // port already disconnected
-    }
-  };
-}
