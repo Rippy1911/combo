@@ -134,6 +134,7 @@ export async function list(): Promise<{ label: string; createdAt: string }[]> {
 }
 
 export async function deleteEntry(label: string): Promise<void> {
+  ensureUnlocked();
   await db.deleteEntry(label);
 }
 

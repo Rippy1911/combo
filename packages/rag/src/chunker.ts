@@ -1,7 +1,7 @@
 const CHUNK_SIZE_CHARS = 2000;
 const OVERLAP_CHARS = 200;
 
-const SENTENCE_END = /[.!?。！？]\s+/;
+const SENTENCE_END = /[.!?。！？]\s+/g;
 
 export interface TextChunk {
   content: string;
@@ -21,12 +21,15 @@ export function splitText(text: string, metadata: Record<string, unknown> = {}):
 
     if (end < text.length) {
       const slice = text.slice(start, end);
-      const sentenceMatch = slice.match(SENTENCE_END);
-      if (sentenceMatch && sentenceMatch.index !== undefined) {
-        const boundary = sentenceMatch.index + sentenceMatch[0].length;
-        if (boundary > OVERLAP_CHARS) {
-          end = start + boundary;
+      // Prefer the *last* sentence end in the window (not the first).
+      let boundary = -1;
+      for (const m of slice.matchAll(SENTENCE_END)) {
+        if (m.index !== undefined) {
+          boundary = m.index + m[0].length;
         }
+      }
+      if (boundary > OVERLAP_CHARS) {
+        end = start + boundary;
       } else {
         const lastSpace = slice.lastIndexOf(" ");
         if (lastSpace > OVERLAP_CHARS) {
