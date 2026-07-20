@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["chrome", "vite/client"],
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../packages/shared" },
+    { "path": "../packages/vault" },
+    { "path": "../packages/rag" },
+    { "path": "../packages/files" },
+    { "path": "../packages/mcp" },
+    { "path": "../packages/llm" },
+    { "path": "../packages/agents" }
+  ]
+}
