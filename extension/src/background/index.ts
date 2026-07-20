@@ -38,9 +38,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 function forwardToOwner(message: OffscreenPortMessage): void {
   const requestId =
-    "requestId" in message && typeof message.requestId === "string"
-      ? message.requestId
-      : null;
+    "requestId" in message && typeof message.requestId === "string" ? message.requestId : null;
   if (!requestId) return;
   const owner = requestOwners.get(requestId);
   if (owner) {
