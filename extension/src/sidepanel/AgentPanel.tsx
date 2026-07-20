@@ -189,6 +189,8 @@ export function AgentPanel({
           break;
         case "error":
           setError(e.message ?? "agent error");
+          setStatusMsg(null);
+          setAgentBusy(false);
           break;
       }
     };
@@ -207,6 +209,9 @@ export function AgentPanel({
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setStatusMsg(null);
+      setAgentBusy(false);
+    } finally {
       setAgentBusy(false);
     }
   }
