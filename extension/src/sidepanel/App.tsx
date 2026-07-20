@@ -1,14 +1,37 @@
-import { Button } from "@/components/ui/button";
-import { getProtocolVersion } from "@combo/shared";
+import { useEffect } from "react";
+import { Chat } from "./components/Chat";
+import { SetPassphrase } from "./components/SetPassphrase";
+import { LockedScreen } from "./components/UnlockDialog";
+import { Welcome } from "./components/Welcome";
+import { useAppStore } from "./store";
 
 export function App() {
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Combo is alive</h1>
-      <p className="text-sm text-muted-foreground">Protocol v{getProtocolVersion()}</p>
-      <Button variant="secondary" size="sm">
-        shadcn/ui ready
-      </Button>
-    </main>
-  );
+  const phase = useAppStore((s) => s.phase);
+  const init = useAppStore((s) => s.init);
+
+  useEffect(() => {
+    void init();
+  }, [init]);
+
+  if (phase === "loading") {
+    return (
+      <main className="flex min-h-screen items-center justify-center p-6">
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      </main>
+    );
+  }
+
+  if (phase === "welcome") {
+    return <Welcome />;
+  }
+
+  if (phase === "setPassphrase") {
+    return <SetPassphrase />;
+  }
+
+  if (phase === "locked" || phase === "unlockDialog") {
+    return <LockedScreen />;
+  }
+
+  return <Chat />;
 }

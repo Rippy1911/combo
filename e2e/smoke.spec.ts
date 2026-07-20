@@ -26,8 +26,7 @@ test.describe("Combo extension smoke", () => {
       const sidePanelPage = await context.newPage();
       await sidePanelPage.goto(`chrome-extension://${extensionId}/src/sidepanel/index.html`);
 
-      await expect(sidePanelPage.getByRole("heading", { name: "Combo is alive" })).toBeVisible();
-      await expect(sidePanelPage.getByText("shadcn/ui ready")).toBeVisible();
+      await expect(sidePanelPage.getByRole("heading", { name: "Welcome to Combo" })).toBeVisible();
     } finally {
       await context.close();
     }
