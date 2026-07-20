@@ -68,18 +68,27 @@ function inline(text: string, keyBase: string): ReactNode[] {
       );
     else if (next.kind === "bold") push(<strong key={k}>{next.text}</strong>);
     else if (next.kind === "ital") push(<em key={k}>{next.text}</em>);
-    else if (next.kind === "link")
+    else if (next.kind === "link") {
+      const href = next.m[2] ?? "";
+      const safe = /^(https?:|mailto:)/i.test(href) ? href : undefined;
       push(
-        <a
-          key={k}
-          href={next.m[2]}
-          target="_blank"
-          rel="noreferrer"
-          className="text-blue-600 underline"
-        >
-          {next.text}
-        </a>,
+        safe ? (
+          <a
+            key={k}
+            href={safe}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-blue-600 underline"
+          >
+            {next.text}
+          </a>
+        ) : (
+          <span key={k} className="underline decoration-dotted">
+            {next.text}
+          </span>
+        ),
       );
+    }
     rest = rest.slice(next.idx + next.len);
   }
   return nodes;
