@@ -22,7 +22,7 @@ export function Chat() {
   const [input, setInput] = useState("");
   const [model, setModel] = useState<string>(PHASE_B_MODELS[0]);
   const [error, setError] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when message list changes
@@ -31,7 +31,11 @@ export function Chat() {
   }, [messages]);
 
   const handleStop = () => {
-    abortRef.current?.abort();
+    const requestId = activeRequestIdRef.current;
+    if (requestId) {
+      sendPortMessage({ type: "combo:chat-abort", requestId });
+      activeRequestIdRef.current = null;
+    }
     setStreaming(false);
   };
 
@@ -80,7 +84,7 @@ export function Chat() {
       .map((m) => ({ role: m.role, content: m.content }));
 
     const requestId = crypto.randomUUID();
-    abortRef.current = new AbortController();
+    activeRequestIdRef.current = requestId;
 
     const cleanup = onPortMessage((msg) => {
       if (msg.requestId !== requestId) return;
@@ -88,11 +92,13 @@ export function Chat() {
         updateMessageContent(assistantMsg.id, msg.content);
         if (msg.done) {
           cleanup();
+          activeRequestIdRef.current = null;
           setStreaming(false);
           void updateMessage(assistantMsg.id, msg.content);
         }
       } else if (msg.type === "combo:chat-error") {
         cleanup();
+        activeRequestIdRef.current = null;
         setStreaming(false);
         setError(msg.error);
         updateMessageContent(assistantMsg.id, `[Error: ${msg.error}]`);

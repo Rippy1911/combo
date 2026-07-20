@@ -91,6 +91,11 @@ chrome.runtime.onMessage.addListener((message: OffscreenPortMessage) => {
     void handleChatStart(message);
     return;
   }
+  if (message?.type === "combo:chat-abort") {
+    activeChats.get(message.requestId)?.abort();
+    activeChats.delete(message.requestId);
+    return;
+  }
   if (message?.type === "combo:test-connection") {
     void handleTestConnection(message);
   }

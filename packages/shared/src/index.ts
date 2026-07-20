@@ -37,6 +37,11 @@ export interface ChatStartMessage {
   apiKey: string;
 }
 
+export interface ChatAbortMessage {
+  type: "combo:chat-abort";
+  requestId: string;
+}
+
 export interface ChatChunkMessage {
   type: "combo:chat-chunk";
   requestId: string;
@@ -67,6 +72,7 @@ export interface TestConnectionResultMessage {
 
 export type OffscreenPortMessage =
   | ChatStartMessage
+  | ChatAbortMessage
   | ChatChunkMessage
   | ChatErrorMessage
   | TestConnectionMessage

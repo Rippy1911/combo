@@ -81,21 +81,45 @@ export const useAppStore = create<AppState>((set, get) => ({
 }));
 
 let chatPort: chrome.runtime.Port | null = null;
+let chatPortAlive = false;
+
+function attachDisconnect(port: chrome.runtime.Port): void {
+  port.onDisconnect.addListener(() => {
+    if (chatPort === port) {
+      chatPort = null;
+      chatPortAlive = false;
+    }
+  });
+}
 
 export function getChatPort(): chrome.runtime.Port {
-  if (!chatPort) {
+  if (!chatPort || !chatPortAlive) {
     chatPort = chrome.runtime.connect({ name: "combo-chat" });
+    chatPortAlive = true;
+    attachDisconnect(chatPort);
   }
   return chatPort;
 }
 
 export function sendPortMessage(message: OffscreenPortMessage): void {
-  getChatPort().postMessage(message);
+  try {
+    getChatPort().postMessage(message);
+  } catch {
+    chatPort = null;
+    chatPortAlive = false;
+    getChatPort().postMessage(message);
+  }
 }
 
 export function onPortMessage(handler: (message: OffscreenPortMessage) => void): () => void {
   const port = getChatPort();
   const listener = (msg: OffscreenPortMessage) => handler(msg);
   port.onMessage.addListener(listener);
-  return () => port.onMessage.removeListener(listener);
+  return () => {
+    try {
+      port.onMessage.removeListener(listener);
+    } catch {
+      // port already disconnected
+    }
+  };
 }
